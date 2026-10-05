@@ -151,6 +151,19 @@ export function initializeRuntimeLogsComponent() {
         let streamTimer = null;
         const nextId = () => ++lineId;
         const formatTimestamp = createTimestampFormatter(config.timezone);
+        const logFilters = { error: true, warning: true, debug: true, info: true };
+        try {
+            const storedFilters = JSON.parse(localStorage.getItem('coolify-log-filters'));
+            if (storedFilters && typeof storedFilters === 'object' && !Array.isArray(storedFilters)) {
+                for (const level of Object.keys(logFilters)) {
+                    if (typeof storedFilters[level] === 'boolean') {
+                        logFilters[level] = storedFilters[level];
+                    }
+                }
+            }
+        } catch {
+            // Invalid saved preferences must not prevent the log viewer from loading.
+        }
 
         return {
             collapsible: config.collapsible ?? true,
@@ -170,7 +183,7 @@ export function initializeRuntimeLogsComponent() {
             scrollDebounce: null,
             destroyed: false,
             colorLogs: localStorage.getItem('coolify-color-logs') === 'true',
-            logFilters: JSON.parse(localStorage.getItem('coolify-log-filters')) || { error: true, warning: true, debug: true, info: true },
+            logFilters,
             searchQuery: '',
             appliedQuery: '',
             matchCount: 0,

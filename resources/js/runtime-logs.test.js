@@ -6,6 +6,7 @@ import {
     getLogLevel,
     highlightSegments,
     isFindShortcut,
+    initializeRuntimeLogsComponent,
     lastTimestamp,
     newLinesSince,
     parseLogLines,
@@ -15,6 +16,57 @@ const idGenerator = () => {
     let id = 0;
     return () => ++id;
 };
+
+function createLogViewer(t, storedFilters) {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    let factory;
+    globalThis.window = { Alpine: { data: (_name, provider) => { factory = provider; } } };
+    Object.defineProperty(globalThis, 'localStorage', {
+        configurable: true,
+        value: { getItem: (key) => key === 'coolify-log-filters' ? storedFilters : null },
+    });
+    t.after(() => {
+        if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+        else delete globalThis.window;
+        if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+        else delete globalThis.localStorage;
+    });
+
+    initializeRuntimeLogsComponent();
+    const viewer = factory();
+    viewer.$nextTick = (callback) => callback();
+    viewer.$wire = { showTimeStamps: false };
+    return viewer;
+}
+
+test('loads runtime logs when saved filters contain invalid JSON', (t) => {
+    const viewer = createLogViewer(t, '{');
+
+    viewer.replaceLines('ERROR unavailable\nWARN retrying\nDEBUG request\nINFO ready');
+
+    assert.equal(viewer.visibleText(), 'ERROR unavailable\nWARN retrying\nDEBUG request\nINFO ready');
+});
+
+for (const storedFilters of ['null', '[]', 'true', '42', '"invalid"']) {
+    test(`uses default log filters for saved value ${storedFilters}`, (t) => {
+        const viewer = createLogViewer(t, storedFilters);
+
+        viewer.replaceLines('ERROR unavailable\nINFO ready');
+
+        assert.deepEqual(viewer.logFilters, { error: true, warning: true, debug: true, info: true });
+        assert.equal(viewer.visibleText(), 'ERROR unavailable\nINFO ready');
+    });
+}
+
+test('preserves boolean log filter preferences and defaults invalid or missing levels', (t) => {
+    const viewer = createLogViewer(t, '{"error":false,"warning":true,"debug":"false"}');
+
+    viewer.replaceLines('ERROR unavailable\nWARN retrying\nDEBUG request\nINFO ready');
+
+    assert.deepEqual(viewer.logFilters, { error: false, warning: true, debug: true, info: true });
+    assert.equal(viewer.visibleText(), 'WARN retrying\nDEBUG request\nINFO ready');
+});
 
 test('parses docker timestamped lines and skips blank lines', () => {
     const lines = parseLogLines(
